@@ -1,8 +1,10 @@
 from __future__ import unicode_literals
 
 import os
+from uuid import uuid4
+from tempfile import gettempdir
 
-from flask import send_from_directory, make_response
+from flask import send_from_directory, make_response, request, send_file
 from flask_classy import route
 from mongoengine.errors import DoesNotExist
 
@@ -10,13 +12,34 @@ from core.web.api.crud import CrudApi
 from core import exports
 from core.web.api.api import render
 from core.helpers import string_to_timedelta
-from core.observables import Tag
-from core.web.helpers import requires_role, requires_permissions
+from core.observables import Tag, Observable
+from core.web.helpers import requires_role, requires_permissions, get_object_or_404, get_queryset
 
 
 class ExportTemplate(CrudApi):
-    template = "export_template_api"
+    template = "export_template_api.html"
     objectmanager = exports.ExportTemplate
+
+    @route('/export', methods=['POST'])
+    def export(self):
+        """Export template"""
+        params = request.json
+        template = get_object_or_404(self.objectmanager, id=params['id'])
+
+        filepath = os.path.join(gettempdir(), 'yeti_{}.txt'.format(uuid4()))
+        if 'query' in params:
+            query = params['query']
+            fltr = query.get('filter', {})
+            params = query.get('params', {})
+            regex = params.pop('regex', False)
+            ignorecase = params.pop('ignorecase', False)
+            queryset = get_queryset(Observable, fltr, regex, ignorecase)
+        else:
+            queryset = Observable.objects(id__in=params['observables'])
+        template.render(queryset, filepath)
+
+        return send_file(filepath, as_attachment=True)
+
 
 
 class Export(CrudApi):
